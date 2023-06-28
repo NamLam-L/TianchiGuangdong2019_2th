@@ -6,13 +6,15 @@ import torch.nn as nn
 from mmdet.core import (bbox2result, bbox2roi, build_assigner, build_sampler,
                         merge_aug_masks)
 from .. import builder
-from ..registry import DETECTORS
+# from ..registry import DETECTORS
+from mmdet.registry import MODELS
 from .base import BaseDetector
 from .test_mixins import RPNTestMixin, BBoxTestMixin
 from mmdet.models.utils import Scale, Scale_channel
 from icecream import ic
 import mmcv
-@DETECTORS.register_module
+
+@MODELS.register_module()
 class CascadeRCNN_pair(BaseDetector, RPNTestMixin, BBoxTestMixin):
 
     def __init__(self,

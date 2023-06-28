@@ -1,9 +1,16 @@
 # model settings
 fp16 = dict(loss_scale=512.)
-norm_cfg = dict(type='GN', num_groups=32, requires_grad=True)
+backend_args = None
 model = dict(
     type='CascadeRCNN_pair',
     num_stages=3,
+    data_preprocessor=dict(
+        type='DetDataPreprocessor',
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        bgr_to_rgb=True,
+        pad_mask=True,
+        pad_size_divisor=128),
     # pretrained='torchvision://resnet50',
     pair_train = True,
     normal_train = False,
@@ -156,123 +163,141 @@ train_cfg = dict(
             debug=False)
     ],
     stage_loss_weights=[1, 0.5, 0.25])
-test_cfg = dict(
-    rpn=dict(
-        nms_across_levels=False,
-        nms_pre=1000,
-        nms_post=1000,
-        max_num=1000,
-        nms_thr=0.7,
-        min_bbox_size=0),
-    rcnn=dict(
-        score_thr=0, nms=dict(type='nms', iou_thr=0.1), max_per_img=300),
-    keep_all_stages=False)
 # dataset settings
 dataset_type = 'CocopairDataset_r2'
 # dataset_type = 'CocoDataset'
-data_root = '../data/round2_data/'
-img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+data_root = '/content/TianchiGuangdong2019_2th-cizhenshi-/round2_data/'
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Resize',
-         multiscale_mode="value",
-         # img_scale=[(1200, 1000)],
-         img_scale=[(2000, 1000), (1600, 1000), (1200, 1000)],
-         keep_ratio=True),
-    dict(type='RandomFlip', flip_ratio=0.5),
-    dict(type='RandomVFlip', flip_ratio=0.5),
+    dict(type='Resize', scale=(1200, 1000), keep_ratio=True),
+    dict(type='RandomFlip', prob=0.5),
     dict(type='BBoxJitter', min=0.9, max=1.1),
-    dict(type='Normalize', **img_norm_cfg),
-    dict(type='Pad', size_divisor=128),
-    dict(type='DefaultFormatBundle'),
-    dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels']),
+    # dict(type='Normalize', **img_norm_cfg),
+    dict(type='PackDetInputs')
 ]
-pair_pipeline = [
+# pair_pipeline = [
+#     dict(type='LoadImageFromFile'),
+#     dict(type='Resize', img_scale=(1200, 1000), keep_ratio=True),c
+#     dict(type='RandomFlip', prob=0.5),
+#     # dict(type='Normalize', **img_norm_cfg),
+#     dict(type='PackDetInputs')
+# ]
+
+
+val_pipeline = [
     dict(type='LoadImageFromFile'),
-    dict(type='Resize',
-         multiscale_mode="value",
-         # img_scale=(1200, 1000),
-         img_scale=[(2000, 1000), (1600, 1000), (1200, 1000)],
-         keep_ratio=True),
-    dict(type='RandomFlip', flip_ratio=0.5),
-    dict(type='RandomVFlip', flip_ratio=0.5),
-    dict(type='Normalize', **img_norm_cfg),
-    dict(type='Pad', size_divisor=128),
-    dict(type='DefaultFormatBundle'),
-    dict(type='Collect', keys=['img']),
-]
-test_pipeline = [
-    dict(type='LoadImageFromFile'),
+    dict(type='Resize', scale=(1200, 1000), keep_ratio=True),
     dict(
-        type='MultiScaleFlipAug',
-        # img_scale=(1200, 1000),
-        img_scale=[(2000, 1000), (1600, 1000), (1200, 1000)],
-        flip=False,
-        transforms=[
-            dict(type='Resize', keep_ratio=True),
-            dict(type='RandomFlip'),
-            dict(type='RandomVFlip', flip_ratio=0.5),
-            dict(type='Normalize', **img_norm_cfg),
-            dict(type='Pad', size_divisor=128),
-            dict(type='ImageToTensor', keys=['img']),
-            dict(type='Collect', keys=['img']),
-        ])
+        type='PackDetInputs',
+        meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape',
+                   'scale_factor'))
 ]
 
-data = dict(
-    imgs_per_gpu=1,
-    workers_per_gpu=8,
-    train=dict(
+train_dataloader = dict(
+    batch_size=2,
+    num_workers=2,
+    persistent_workers=True,
+    sampler=dict(  # training data sampler
+        type='DefaultSampler',  # DefaultSampler which supports both distributed and non-distributed training. Refer to https://mmengine.readthedocs.io/en/latest/api/generated/mmengine.dataset.DefaultSampler.html#mmengine.dataset.DefaultSampler
+        shuffle=True),
+    batch_sampler=dict(type='AspectRatioBatchSampler'),
+    dataset=dict(
         type=dataset_type,
-        ann_file=(data_root + 'Annotations/train_1010.json'),
-        img_prefix=(data_root),
+        data_root = data_root,
+        ann_file= 'Annotations/train_1010.json',
+        data_prefix=dict(img= data_root),
         pipeline=train_pipeline,
-        normal_pipeline=pair_pipeline,
-        normal = False,
-        pair = True),
-    val=dict(
+        # normal_pipeline=pair_pipeline,
+        backend_args = None))
+
+val_dataloader = dict(  # Validation dataloader config
+    batch_size=1,  # Batch size of a single GPU. If batch-size > 1, the extra padding area may influence the performance.
+    num_workers=2,  # Worker to pre-fetch data for each single GPU
+    persistent_workers=True,  # If ``True``, the dataloader will not shut down the worker processes after an epoch end, which can accelerate training speed.
+    drop_last=False,  # Whether to drop the last incomplete batch, if the dataset size is not divisible by the batch size
+    sampler=dict(
+        type='DefaultSampler',
+        shuffle=False),  # not shuffle during validation and testing
+    dataset=dict(
         type=dataset_type,
-        ann_file=data_root + 'Annotations/val_0.json',
-        img_prefix=data_root + 'defect/',
-        pipeline=test_pipeline),
-    test=dict(
-        type=dataset_type,
-        ann_file=data_root + 'Annotations/train_0.json',
-        img_prefix=data_root + 'defect/',
-        pipeline=test_pipeline,
-        normal_pipeline=test_pipeline,
-        pair=True
-    ))
+        data_root=data_root,
+        ann_file='Annotations/train_1010.json',
+        data_prefix=dict(img= data_root),
+        test_mode=True,  # Turn on the test mode of the dataset to avoid filtering annotations or images
+        pipeline=val_pipeline,
+        backend_args= None))
+
+
+val_evaluator = dict(  # Validation evaluator config
+    type='CocoMetric',  # The coco metric used to evaluate AR, AP, and mAP for detection and instance segmentation
+    ann_file=data_root + 'Annotations/train_1010.json',  # Annotation file path
+    metric=['bbox'],  # Metrics to be evaluated, `bbox` for detection and `segm` for instance segmentation
+    format_only=False,
+    backend_args= backend_args)
+
+
+
 # optimizer
-optimizer = dict(type='SGD', lr=5e-3, momentum=0.9, weight_decay=0.0001)
-optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
-# learning policy
-lr_config = dict(
-    policy='step',
-    warmup='linear',
-    warmup_iters=500,
-    warmup_ratio=1.0 / 3,
-    step=[16, 19])
-checkpoint_config = dict(interval=1)
-# yapf:disable
-log_config = dict(
-    interval=50,
-    hooks=[
-        dict(type='TextLoggerHook'),
-        #dict(type='TensorboardLoggerHook')
-    ])
+# optimizer assumes bs=64
+optim_wrapper = dict(
+    type='OptimWrapper',
+    optimizer=dict(type='SGD', lr=5e-3, momentum=0.9, weight_decay=0.0001), 
+    clip_grad=dict(max_norm=35, norm_type=2))
+# optimizer = dict(type='SGD', lr=5e-3, momentum=0.9, weight_decay=0.0001)
+# optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
+
+
+
+param_scheduler = [
+    dict(
+        type='LinearLR',  # Use linear learning rate warmup
+        start_factor=1.0 / 3, # Coefficient for learning rate warmup
+        by_epoch=False,  # Update the learning rate during warmup at each iteration
+        begin=0,  # Starting from the first iteration
+        end=500),  # End at the 500th iteration
+    dict(
+        type='MultiStepLR',  # Use multi-step learning rate strategy during training
+        by_epoch=True,  # Update the learning rate at each epoch
+        begin=0,   # Starting from the first epoch
+        end=12,  # Ending at the 12th epoch
+        milestones=[16, 19] )  # Learning rate decay at which epochs)  
+]
+
+
+
+default_hooks = dict(
+    timer=dict(type='IterTimerHook'),  # Update the time spent during iteration into message hub
+    logger=dict(type='LoggerHook', interval=50),  # Collect logs from different components of Runner and write them to terminal, JSON file, tensorboard and wandb .etc
+    param_scheduler=dict(type='ParamSchedulerHook'), # update some hyper-parameters of optimizer
+    checkpoint=dict(type='CheckpointHook', interval=1), # Save checkpoints periodically
+    sampler_seed=dict(type='DistSamplerSeedHook'))  # Ensure distributed Sampler shuffle is active
+
+
 # yapf:enable
 # runtime settings
+
+train_cfg = dict(
+    type='EpochBasedTrainLoop',  # The training loop type. Refer to https://github.com/open-mmlab/mmengine/blob/main/mmengine/runner/loops.py
+    max_epochs=20,  # Maximum training epochs
+    val_interval=1)  # Validation intervals. Run validation every epoch.
+val_cfg = dict(type='ValLoop')  # The validation loop type
+# test_cfg = dict(type='TestLoop')  # The testing loop type
+
+env_cfg = dict(
+    cudnn_benchmark=False,
+    mp_cfg=dict(mp_start_method='fork',
+                opencv_num_threads=0),
+    dist_cfg=dict(backend='nccl')) 
 total_epochs = 20
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = './work_dirs/cascade_r101'
+work_dir = '/content/TianchiGuangdong2019_2th-cizhenshi-/work_dirs/cascade_r101'
 
 # load_from = "./work_dirs/cascade_rcnn_r50_fpn_20e_20181123-db483a09.pth"
-load_from = "./coco_model/cascade_rcnn_r101_fpn_20e_20181129-b46dcede.pth"
-# load_from = None
+# load_from = "./coco_model/cascade_rcnn_r101_fpn_20e_20181129-b46dcede.pth"
+load_from = None
 
-resume_from = None
+resume = False
 workflow = [('train', 1)]
+gpus = 1
