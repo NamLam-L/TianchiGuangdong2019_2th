@@ -6,18 +6,45 @@ import cv2
 from pycocotools.coco import COCO
 import shutil
 import numpy as np
-from icecream import ic
+# from icecream import ic
 from collections import Counter
-
-
-def construct_imginfo(root_dir, filename, template, h, w, ID):
-    template_class = template.split(".")[0]
-    filename = "{}/{}/{}".format(root_dir, filename.split('.')[0], filename)
-    template = "{}/{}/template_{}".format(root_dir, filename.split("/")[1], template)
+import mmengine
+from mmengine.fileio import dump
+import json
+num_classes = 11
+eng_dict = {0: 'non-conductive',
+  1: 'Jet',
+  2: 'wiping flowers',
+  3: 'variegated',
+  4: 'orange peel',
+  5: 'Paint bubble',
+  6: 'Leak the bottom',
+  7: 'Dirty point',
+  8: 'Corner leak bottom',
+  9: 'Pitting'}
+eng_dict_reverse = {'non-conductive':0,
+  'Jet':1,
+  'wiping flowers': 2,
+  'variegated': 3,
+  'orange peel':4,
+  'Paint bubble': 5,
+  'Leak the bottom': 6,
+  'Dirty point': 7,
+  'Corner leak bottom': 8,
+  'Pitting': 9}
+china_dict = {'不导电': 'non-conductive',
+ '喷流' : 'Jet',
+ '擦花': 'wiping flowers',
+ '杂色': 'variegated',
+ '桔皮': 'orange peel',
+ '漆泡': 'Paint bubble',
+ '漏底': 'Leak the bottom',
+ '脏点': 'Dirty point',
+ '角位漏底': 'Corner leak bottom',
+ '起坑': 'Pitting'}
+def construct_imginfo(filename, h, w, ID): # (file_name, h, ,w, id)
     image = {"license": 1,
              "file_name": filename,
-             'template_name': template,
-             "cls": template_class,
              "coco_url": "xxx",
              "height": h,
              "width": w,
@@ -36,6 +63,7 @@ def construct_ann(obj_id, ID, category_id, seg, area, bbox):
            "area": area,
            "bbox": bbox,
            "iscrowd": 0,
+           "ignore": 0
            }
     return ann
 
@@ -43,7 +71,7 @@ def construct_ann(obj_id, ID, category_id, seg, area, bbox):
 def add_normal(normal_dir, out_file):
     coco = COCO(out_file)
     ID = max(coco.getImgIds()) + 1
-    annotations = mmcv.load(out_file)
+    annotations = mmengine.load(out_file)
     normal_list = os.listdir(normal_dir)
     for normal in tqdm(normal_list):
         source = "{}/{}".format(normal_dir, normal)
@@ -61,8 +89,8 @@ def add_normal(normal_dir, out_file):
 
 
 def generate_normal(normal_dir, out_file):
-    cls2ind = mmcv.load("./source/cls2ind.pkl")
-    ind2cls = mmcv.load("./source/ind2cls.pkl")
+    cls2ind = mmengine.load("./source/cls2ind.pkl")
+    ind2cls = mmengine.load("./source/ind2cls.pkl")
     info = {
         "description": "cloth",
         "url": "http://cocodataset.org",
@@ -90,13 +118,16 @@ def generate_normal(normal_dir, out_file):
         ID += 1
         annotations["images"].append(img_info)
     print(len(annotations["images"]))
-    a = open(out_file, 'w')
-    a.close()
-    mmcv.dump(annotations, out_file)
+    # a = open(out_file, 'w')
+    # a.close()
+    dump(annotations, out_file)
 
 def generate_coco(annos, out_file):
-    cls2ind = mmcv.load("./source/cls2ind.pkl")
-    ind2cls = mmcv.load("./source/ind2cls.pkl")
+    # cls2ind = mmengine.load("/content/drive/MyDrive/Aluko/Fabric/source/cls2ind.pkl")
+    # ind2cls = mmengine.load("/content/drive/MyDrive/Aluko/Fabric/source/ind2cls.pkl")
+    ind2cls = eng_dict
+    
+
     info = {
         "description": "cloth",
         "url": "http://cocodataset.org",
@@ -108,44 +139,63 @@ def generate_coco(annos, out_file):
     license = [{"url": "http://creativecommons.org/licenses/by-nc-sa/2.0/", "id": 1,
                 "name": "Attribution-NonCommercial-ShareAlike License"}]
     categories = []
-    for ind in range(len(ind2cls)):
-        category = {"id": ind, "name": ind2cls[ind], "supercategory": "object", }
+    for ind, clss in ind2cls.items():
+        category = {"id": ind, "name": clss, "supercategory": "object", }
         categories.append(category)
     annotations = {"info": info, "images": [], "annotations": [], "categories": categories, "license": license}
     img_names = {}
     IMG_ID = 0
     OBJ_ID = 0
-    for info in tqdm(annos):
-        name = info['name']
-        template = name.split('_')[0] + ".jpg"
-        defect_name = info["defect_name"]
-        bbox = info["bbox"]
-        if name not in img_names:
-            img_names[name] = IMG_ID
-            img_path = "../data/round2_data/defect/{}/{}".format(name.split(".")[0], name)
-            img = cv2.imread(img_path)
-            h, w, _ = img.shape
-            img_info = construct_imginfo("defect", name, template, h, w, IMG_ID)
-            annotations["images"].append(img_info)
-            IMG_ID = IMG_ID + 1
-        img_id = img_names[name]
-        cat_ID = cls2ind[defect_name]
-        xmin, ymin, xmax, ymax = bbox
-        area = (ymax - ymin) * (xmax - xmin)
-        seg = [[xmin, ymin, xmin, ymax, xmax, ymax, xmax, ymin]]
-        bbox = [xmin, ymin, xmax - xmin, ymax - ymin]
-        ann = construct_ann(OBJ_ID, img_id, cat_ID, seg, area, bbox)
-        annotations["annotations"].append(ann)
-        OBJ_ID += 1
+    for img_name in tqdm(os.listdir(annos)):
+        if("json" in img_name):
+            continue
+        else:
+            file_name = os.path.join(annos, img_name)
+            json_file_path = os.path.join(annos, img_name.split(".")[0] + ".json")
+            if(file_name not in img_names):
+                img_names[file_name] = IMG_ID
+                img = cv2.imread(file_name)
+                h, w, _ = img.shape
+                img_info = construct_imginfo(file_name, h, w, IMG_ID)
+                annotations["images"].append(img_info)
+                IMG_ID = IMG_ID + 1
+            if(os.path.exists(json_file_path)): # The image with bb or the flaw images
+                img_id = img_names[file_name]
+                root = mmengine.load(json_file_path)
+                for obj in root["shapes"]:
+                    class_name = obj["label"]
+                    corners = [obj["points"][0][1] , obj["points"][0][0] , obj["points"][0][1] , obj["points"][0][0] ] #y_min, x_min, y_max, x_max
+                    for c_point in obj["points"][1:]:
+                        if(c_point[0]  < corners[1]):
+                            corners[1] = c_point[0] 
+                        elif(c_point[0]  > corners[3]):
+                            corners[3] = c_point[0] 
+                        if(c_point[1]  < corners[0]):
+                            corners[0] = c_point[1] 
+                        elif(c_point[1] > corners[2]):
+                            corners[2] = c_point[1] 
+                    cat_ID = eng_dict_reverse[china_dict[class_name]]
+                    ymin, xmin, ymax, xmax = corners
+                    area = (ymax- ymin) * (xmax - xmin)
+                    seg = [[xmin, ymin, xmin, ymax, xmax, ymax, xmax, ymin]]
+                    bbox = [xmin, ymin, xmax - xmin, ymax - ymin]
+                    ann = construct_ann(OBJ_ID, img_id, cat_ID, seg, area, bbox)
+                    annotations["annotations"].append(ann)
+                    OBJ_ID += 1
+            else: # The flawness images TODO: need to implement
+                pass
     print(len(annotations["images"]))
-    a = open(out_file, 'w')
-    a.close()
-    mmcv.dump(annotations, out_file)
+    print(annotations)
+    with open(out_file, "w") as outfile:
+      json.dump(annotations, outfile)
+    # a = open(out_file, 'w')
+    # a.close()
+    # dump(annotations, out_file)
 
 
 def generate_train(coco, val):
-    cls2ind = mmcv.load("./source/cls2ind.pkl")
-    ind2cls = mmcv.load("./source/ind2cls.pkl")
+    cls2ind = mmengine.load("./source/cls2ind.pkl")
+    ind2cls = mmengine.load("./source/ind2cls.pkl")
     info = {
         "description": "cloth",
         "url": "http://cocodataset.org",
@@ -179,7 +229,7 @@ def generate_train(coco, val):
 
 
 def split(out_file):
-    all_class = mmcv.load("./source/temp_cls.pkl")
+    all_class = mmengine.load("./source/temp_cls.pkl")
     np.random.seed(1)
     val = np.random.choice(all_class, 28, replace=False)
     train = list(set(all_class) - set(val))
@@ -187,12 +237,10 @@ def split(out_file):
     generate_train(coco, val)
 
 if __name__ == "__main__":
-    data_root = "../data/"
-    annos1 = mmcv.load("../data/round2_data/Annotations/anno_train_0924.json")
-    annos2 = mmcv.load("../data/round2_data/Annotations/anno_train_1004.json")
-    annos = annos1 + annos2
-    data_dir = "../data/round2_data"
-    out_file = "{}/Annotations/train_1010.json".format(data_dir)
+    # data_root = "../data/"
+    data_dir = "/content"
+    annos = "/content/drive/MyDrive/Aluko/train_data"
+    out_file = "{}/train_anno.json".format(data_dir)
     print("convert to coco format...")
     generate_coco(annos, out_file)
-    add_normal("../data/round2_data/normal", out_file)
+    # add_normal("../data/round2_data/normal", out_file)
