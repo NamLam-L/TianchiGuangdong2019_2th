@@ -403,7 +403,7 @@ class BaseDataset(Dataset):
                 raise Exception('Test time pipline should not get `None` '
                                 'data_sample')
             return data
-
+        print(len(self.data_list))
         for _ in range(self.max_refetch + 1):
             data = self.prepare_data(idx)
             # Broken images or random augmentations may cause the returned data

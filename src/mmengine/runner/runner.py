@@ -1335,6 +1335,8 @@ class Runner:
         Returns:
             Dataloader: DataLoader build from ``dataloader_cfg``.
         """
+
+        print("Build dataloader workinggg")
         if isinstance(dataloader, DataLoader):
             return dataloader
 
@@ -1353,6 +1355,7 @@ class Runner:
 
         # build sampler
         sampler_cfg = dataloader_cfg.pop('sampler')
+
         if isinstance(sampler_cfg, dict):
             sampler_seed = None if diff_rank_seed else seed
             sampler = DATA_SAMPLERS.build(

@@ -151,7 +151,7 @@ def generate_coco(annos, out_file):
             continue
         else:
             file_name = os.path.join(annos, img_name)
-            json_file_path = os.path.join(annos, img_name.split(".")[0] + ".json")
+            json_file_path = os.path.join(annos, img_name[:-3] + "json")
             if(file_name not in img_names):
                 img_names[file_name] = IMG_ID
                 img = cv2.imread(file_name)
@@ -187,7 +187,7 @@ def generate_coco(annos, out_file):
     print(len(annotations["images"]))
     print(annotations)
     with open(out_file, "w") as outfile:
-      json.dump(annotations, outfile)
+      json.dump(annotations, outfile, ensure_ascii=False)
     # a = open(out_file, 'w')
     # a.close()
     # dump(annotations, out_file)

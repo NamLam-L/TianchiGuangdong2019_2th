@@ -73,6 +73,8 @@ class CocoDataset(BaseDetDataset):
         self.cat_img_map = copy.deepcopy(self.coco.cat_img_map)
 
         img_ids = self.coco.get_img_ids()
+        print(f'Aawwwwwwwwwwwwwwwwwwwawwwwwwwwwwwwwwawa: {len(img_ids)}')
+        # exit()
         data_list = []
         total_ann_ids = []
         for img_id in img_ids:
@@ -115,6 +117,7 @@ class CocoDataset(BaseDetDataset):
 
         # TODO: need to change data_prefix['img'] to data_prefix['img_path']
         img_path = osp.join(self.data_prefix['img'], img_info['file_name'])
+        print(img_path)
         if self.data_prefix.get('seg', None):
             seg_map_path = osp.join(
                 self.data_prefix['seg'],
@@ -182,7 +185,7 @@ class CocoDataset(BaseDetDataset):
         # merge the image id sets of the two conditions and use the merged set
         # to filter out images if self.filter_empty_gt=True
         ids_in_cat &= ids_with_ann
-
+            
         valid_data_infos = []
         for i, data_info in enumerate(self.data_list):
             img_id = data_info['img_id']
@@ -192,5 +195,5 @@ class CocoDataset(BaseDetDataset):
                 continue
             if min(width, height) >= min_size:
                 valid_data_infos.append(data_info)
-
+        print(len(valid_data_infos))
         return valid_data_infos
